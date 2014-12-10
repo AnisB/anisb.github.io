@@ -364,6 +364,17 @@ a.projects {
   background-repeat: no-repeat;
 }
 
+a.linked {
+  display: inline-block;
+  margin-top: 1px;
+  *margin-right: .3em;
+  line-height: 14px;
+  vertical-align: text-top;
+  background-image: url("../images/buttons/linked.png");
+  background-repeat: no-repeat;
+}
+
+
 a.buttons:hover {
 	color: #fff;
 	text-decoration: none;
