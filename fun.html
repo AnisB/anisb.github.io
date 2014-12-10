@@ -1,0 +1,536 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Anis&#39;s page. by AnisB</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <script src="javascripts/scale.fix.js"></script>
+  <script type="text/javascript" src="javascripts/libtp3.js"></script>
+  <script type="text/javascript" src="javascripts/webgl-utils.js"></script>
+  <script id="renderFragment" type="glsl/frag">
+  precision mediump float;
+
+  varying vec2 texCoord;
+
+  struct TRay
+  {
+    vec3 origin;
+    vec3 direction;
+    bool outRay;
+  };
+
+  uniform sampler2D previousFrame;
+  uniform int frameID;
+
+  struct TSphere
+  {
+      float rayon;
+      vec3 position;
+      vec3 emission;
+      vec3 color;
+  };
+
+  struct TIntersect
+  {
+    float distance;
+    vec3 normal;
+    vec3 position;
+    bool isValid;
+    int primIndex;
+    vec3 colorVal;
+    vec3 emission;
+    bool outRay;
+    int surfaceType;
+    vec3 incident;
+  };
+
+  uniform TSphere spheres[8];
+  uniform TRay camera;
+  int property[8];
+  float speed[8];
+
+  uniform float unitX;
+  uniform float unitY;
+  uniform vec3 xDir;
+  uniform vec3 yDir;
+  uniform vec3 coinSupGauch;
+  uniform float iGlobalTime;
+
+  float width = 512.0;
+  float height = 368.0;
+
+  const int samples = 5;
+  const int pathSize  = 5;
+  float Infinity = 1000000.0;
+  float EPSILON = 0.01;
+  float seed;
+  float currentTime;
+  float glossyFactor = 5.0;
+
+  float rand()
+  {
+      return fract(sin(seed++)*43758.5453);
+  }
+
+  TIntersect IntersectSphere(TRay parRayon, TSphere currentSphere, vec3 speed)
+  {
+      // Donnée d'intersection
+      TIntersect intersect;
+      intersect.isValid = false;
+
+      vec3 realPos = currentSphere.position-speed;
+
+      // Données de l'equation de second degrès 
+      float A = dot(parRayon.direction,parRayon.direction);
+      float B = 2.0*dot(parRayon.origin-realPos,parRayon.direction);
+      float C = dot(parRayon.origin-realPos,parRayon.origin - realPos) - currentSphere.rayon*currentSphere.rayon;
+      
+      // Calcul du determinant
+      float delta = B*B-4.0*A*C;
+      // test positif
+      if(delta<-EPSILON)
+      {
+          return intersect;
+      }
+      //resultat nul
+      else if(delta==0.0)
+      {   
+          float t = -B/2.0*A; 
+          if(t>0.0)
+          {
+              intersect.isValid = true;
+              intersect.distance = t;
+              intersect.colorVal = currentSphere.color;
+          }
+      }
+      // Delta non nul
+      else
+      {
+          // Les deux solutions
+          float t1 = (-B - sqrt(delta))/(2.0*A);
+          float t2 = (-B + sqrt(delta))/(2.0*A);
+          // On garde le minimum positif
+          float finalt = Infinity;
+          if (t1 > 0.0)
+              finalt = min(finalt, t1);
+          if (t2 > 0.0)
+              finalt = min(finalt, t2);
+          intersect.distance = finalt;
+          if(finalt>EPSILON && finalt!=Infinity)
+          {
+              // On défini l'intersection
+              intersect.isValid = true;
+              intersect.position = parRayon.origin + (parRayon.direction*finalt);
+              intersect.normal = intersect.position - realPos;
+              intersect.colorVal = currentSphere.color;
+
+              if((t1>0.0 && t2<0.0)||(t2>0.0 && t1<0.0))
+                  intersect.normal = -intersect.normal ;
+              intersect.normal = normalize(intersect.normal);
+              intersect.incident = parRayon.direction;
+          }
+      }
+      return intersect;
+  }
+
+  TIntersect traceRay(TRay parRayon)
+  {
+      // On intersecte avec tous les objets de la scene
+      TIntersect finalIntersect;
+      finalIntersect.distance = Infinity;
+      finalIntersect.normal = vec3(0.0);
+      finalIntersect.isValid = false;
+      finalIntersect.primIndex = -1;
+      finalIntersect.outRay = parRayon.outRay;
+
+      for (int index = 0; index < 8; ++index) 
+      {
+          TSphere currentSphere = spheres[index];
+
+          TIntersect intersection = IntersectSphere(parRayon, currentSphere,speed[index]*vec3(cos(currentTime*2.0*3.14),0.0,0.0));
+          if(intersection.isValid)
+          {
+              // On garde la plus petite
+              if(intersection.distance<finalIntersect.distance)
+              {
+                  finalIntersect = intersection;
+                  finalIntersect.primIndex = index;
+                  finalIntersect.surfaceType = property[index];
+                  finalIntersect.emission = currentSphere.emission;
+              }
+          }
+      }
+      return finalIntersect;
+  }
+
+  mat4 rotationMatrix(vec3 axis, float angle)
+  {
+      axis = normalize(axis);
+      float s = sin(angle);
+      float c = cos(angle);
+      float oc = 1.0 - c;
+      
+      return mat4(oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
+                  oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,  0.0,
+                  oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c,           0.0,
+                  0.0,                                0.0,                                0.0,                                1.0);
+  }
+
+  // PDF cosine
+  vec3 pdf(vec3 axis)
+  {
+      float val = -1.0;
+      float phi = 2.0*3.14*rand();
+      float teta = acos(sqrt(rand()));
+      mat4 rot = rotationMatrix(normalize(cross(axis, vec3(0.0,1.0,0.0))),teta);
+      vec3 wi = (rot*vec4(axis,1.0)).xyz;
+      wi = (rotationMatrix(axis,phi)*vec4(wi,1.0)).xyz;
+      return wi;        
+  }
+
+  TRay createRay(TIntersect parIntersection)
+  {
+      if(parIntersection.surfaceType == 1) // Reflective
+      {
+          vec3 omega_i =  reflect(parIntersection.incident,parIntersection.normal);
+          return TRay(parIntersection.position+parIntersection.normal* EPSILON, omega_i,parIntersection.outRay);
+      }
+      if(parIntersection.surfaceType == 2) // Refractive
+      {
+          vec3 omega_i;
+          if(parIntersection.outRay)
+          {
+              omega_i =  refract(parIntersection.incident-parIntersection.normal* EPSILON,parIntersection.normal,1.5);
+          }
+          else
+          {
+              omega_i =  refract(parIntersection.incident+parIntersection.normal* EPSILON,parIntersection.normal,1.0/1.5);
+          }
+          return TRay(parIntersection.position, omega_i,!parIntersection.outRay);
+      }
+      if(parIntersection.surfaceType == 3) // Glossy
+      {
+          vec3 r =  reflect(parIntersection.incident,parIntersection.normal);
+          vec3 omega_i = pdf(r);
+          return TRay(parIntersection.position+parIntersection.normal* EPSILON, omega_i,parIntersection.outRay);
+      }
+      if(parIntersection.surfaceType == 0) 
+      {
+          vec3 omega_i = pdf(parIntersection.normal);
+          return TRay(parIntersection.position+parIntersection.normal* EPSILON, omega_i,parIntersection.outRay);
+      }
+
+  }
+
+  vec3 pathTrace(TRay parRayon)
+  {
+      vec3 color = vec3(1.0);
+      TIntersect currentInter;
+      TRay currentRay = parRayon;
+      for(int i = 0; i < pathSize; ++i)
+      {
+          currentInter = traceRay(currentRay);
+          if(!currentInter.isValid)
+              break;
+          if(length(currentInter.emission)>0.1)
+          {
+              color *= currentInter.emission;
+              break;
+          }
+          currentRay = createRay(currentInter);
+          if(currentInter.surfaceType == 3)
+          {
+              vec3 r =  reflect(currentInter.incident,currentInter.normal);
+              float cosVal = dot(r, currentRay.direction);
+              color *= currentInter.colorVal*pow(cosVal,glossyFactor)*(glossyFactor);
+          }
+          else
+          {
+              float cosVal = dot(currentRay.direction, currentInter.normal);
+              color *= currentInter.colorVal;
+          }
+      }
+      return color;
+  }
+  void main(void) 
+  {
+      property[0]=0;
+      property[1]=0;
+      property[2]=0;
+      property[3]=0;
+      property[4]=0;
+      property[5]=3;
+      property[6]=2;
+      property[7]=0;
+
+      speed[5] = 0.0;
+      speed[6] = 0.0;
+      speed[7] = 0.0;
+
+      seed = iGlobalTime *( height*gl_FragCoord.x/width+gl_FragCoord.y/height); 
+      vec3 ydis = yDir*(1.0-texCoord.y)*height*unitX;
+      vec3 xdis = xDir*texCoord.x*width*unitY;
+
+      vec3 displacement = xdis+ydis;
+      vec3 point = coinSupGauch + displacement;
+      
+      vec3 direction = normalize(point - camera.origin);
+      vec3 colorVal = vec3(0.0);
+      currentTime = rand();
+      for(int i = 0; i<samples; i++)
+      {
+          colorVal+=pathTrace(TRay(camera.origin, direction, true));
+      }
+      colorVal/=float(samples);
+      gl_FragColor = vec4((colorVal + texture2D(previousFrame,texCoord).rgb*float(frameID))/float(frameID+1),1.0);
+  }
+  </script>
+
+  <!-- Declaration du vertex shader -->
+  <script id="basicFragment" type="glsl/fragment">
+      precision mediump float;
+      //Attributs passés en attribute
+      uniform sampler2D previousFrame;
+
+      varying vec2 texCoord;
+      void main(void) 
+      {
+          gl_FragColor = vec4(clamp(pow(texture2D(previousFrame,texCoord).xyz,vec3(1.0/2.2)),0.0,1.0),1.0);
+      }
+  </script>
+
+  <!-- Declaration du vertex shader -->
+  <script id="basicVertex" type="glsl/vertex">
+      //Attributs passés en attribute
+      attribute vec3 VertexPosition;
+
+      //Attributs passés en attribute
+      attribute vec2 VertexTexCoord;
+
+      varying vec2 texCoord;
+      void main(void) 
+      {
+          texCoord = VertexTexCoord;
+          gl_Position = vec4(VertexPosition, 1.0);
+      }
+  </script>
+
+  <script type="text/javascript">
+      // Variables gobales
+      var gl;
+      var canvas;
+
+      var delta = 0.0;
+      var VERY_BIG = 100000;
+      var FBO;
+      // Inputs
+      var currentlyPressedKeys = {};
+      var shader;
+      var shader2;
+      var Quad = [];
+      var d = new Date();
+      var firstTime = d.getTime();
+
+      var frameID = 0;
+
+      function initShaderData()
+      {
+          bindProgram(shader);
+          shader.vertexPositionAttribute = gl.getAttribLocation(shader, "VertexPosition");
+          shader.vertexTexCoordAttribute = gl.getAttribLocation(shader, "VertexTexCoord");
+          bindProgram(null);
+
+          bindProgram(shader2);
+          shader2.vertexPositionAttribute = gl.getAttribLocation(shader2, "VertexPosition");
+          shader2.vertexTexCoordAttribute = gl.getAttribLocation(shader2, "VertexTexCoord");
+          bindProgram(null);
+
+      }
+
+      // Injection des coefficients des harmonique sphériques
+      function injectData()
+      {
+          bindProgram(shader);
+          gl.uniform1f(gl.getUniformLocation(shader, "unitX"), 0.013634118022634367); 
+          gl.uniform1f(gl.getUniformLocation(shader, "unitY"), 0.013634118022634369); 
+          gl.uniform3f(gl.getUniformLocation(shader, "xDir"), 1,0,0)
+          gl.uniform3f(gl.getUniformLocation(shader, "yDir"), 0,-0.9990933432599493,0.04257336554299296);
+
+          gl.uniform3f(gl.getUniformLocation(shader, "coinSupGauch"), 46.5096657862056,54.20326536019353,285.4970396613468);
+
+          gl.uniform3f(gl.getUniformLocation(shader, "camera.origin"), 50, 52, 295.6);
+
+          gl.uniform1f(gl.getUniformLocation(shader, "spheres[0].rayon"), VERY_BIG);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[0].position"), VERY_BIG+1,40.8,81.6);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[0].emission"), 0.0,0.0,0.0);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[0].color"),.75,.25,.25);
+
+          gl.uniform1f(gl.getUniformLocation(shader, "spheres[1].rayon"), VERY_BIG);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[1].position"), -VERY_BIG+99,40.8,81.6);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[1].emission"), 0.0,0.0,0.0);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[1].color"),.25,.25,.75);
+
+          gl.uniform1f(gl.getUniformLocation(shader, "spheres[2].rayon"), VERY_BIG);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[2].position"), 50,40.8, VERY_BIG);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[2].emission"), 0.0,0.0,0.0);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[2].color"),.75,.75,.75);
+
+          gl.uniform1f(gl.getUniformLocation(shader, "spheres[3].rayon"), VERY_BIG);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[3].position"), 50, VERY_BIG, 81.6);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[3].emission"), 0.0,0.0,0.0);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[3].color"),.75,.75,.75);
+
+          gl.uniform1f(gl.getUniformLocation(shader, "spheres[4].rayon"), VERY_BIG);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[4].position"), 50,-VERY_BIG+81.6,81.6);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[4].emission"), 0.0,0.0,0.0);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[4].color"),.75,.75,.75);
+
+          gl.uniform1f(gl.getUniformLocation(shader, "spheres[5].rayon"), 16.5);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[5].position"), 27,16.5,47);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[5].emission"), 0.0,0.0,0.0);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[5].color"),0.99,0.99,0.99);
+
+          gl.uniform1f(gl.getUniformLocation(shader, "spheres[6].rayon"), 16.5);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[6].position"), 73,16.5,78);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[6].emission"), 0.0,0.0,0.0);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[6].color"),0.99,0.99,0.99);
+
+          gl.uniform1f(gl.getUniformLocation(shader, "spheres[7].rayon"), 10.0);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[7].position"), 50,73.33,81.6);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[7].emission"), 12.0,12.0,12.0);
+          gl.uniform3f(gl.getUniformLocation(shader, "spheres[7].color"),0.0,0.0,0.0);
+
+          shader.previousFrame = gl.getUniformLocation(shader, "previousFrame");
+          shader.frameID = gl.getUniformLocation(shader, "frameID");
+          shader.timeVal = gl.getUniformLocation(shader, "iGlobalTime");
+          bindProgram(null);
+          
+          bindProgram(shader2);
+          shader2.previousFrame = gl.getUniformLocation(shader2, "previousFrame");
+          bindProgram(null);
+
+      }
+
+      function drawQuad(parShader)
+      {
+          // ON bind le pos buffer 
+          gl.enableVertexAttribArray(parShader.vertexPositionAttribute);
+          gl.bindBuffer(gl.ARRAY_BUFFER, Quad.vertexPositionBuffer);
+          gl.vertexAttribPointer(parShader.vertexPositionAttribute, Quad.vertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+          // ON bind le texcoord buffer 
+          gl.enableVertexAttribArray(parShader.vertexTexCoordAttribute);
+          gl.bindBuffer(gl.ARRAY_BUFFER, Quad.vertexTextureCoordBuffer);
+          gl.vertexAttribPointer(parShader.vertexTexCoordAttribute, Quad.vertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);   
+
+          // On bind l'IBO
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, Quad.vertexIndexBuffer);
+          // On déssine la sphère
+          gl.drawElements(gl.TRIANGLES, Quad.vertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+          gl.disableVertexAttribArray(parShader.vertexPositionAttribute);
+          gl.disableVertexAttribArray(parShader.vertexTexCoordAttribute);
+      }
+      function drawScene() 
+      {
+          var d2 = new Date();
+          var current = d2.getTime();
+          delete d2;
+          // On définie le viewport
+          gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+          // On injecte les données communes
+          bindFBO(FBO);
+          bindProgram(shader);
+          gl.uniform1i(shader.previousFrame, 0); 
+          gl.activeTexture(gl.TEXTURE0)
+          gl.bindTexture(gl.TEXTURE_2D, FBO.colorTex);
+          gl.uniform1i(shader.frameID, frameID++);
+          gl.uniform1f(shader.timeVal, (current-firstTime)/1000.0); 
+          drawQuad(shader)
+          unbindProgram();
+          unbindFBO();
+
+          bindProgram(shader2)
+          gl.uniform1i(shader2.previousFrame, 0); 
+
+          gl.activeTexture(gl.TEXTURE0)
+          gl.bindTexture(gl.TEXTURE_2D, FBO.colorTex);
+          drawQuad(shader2)
+          unbindProgram();
+
+      }
+
+      function initRender()
+      {
+          gl.clearColor(0.0, 0.0, 0.0, 1.0);
+          gl.disable(gl.DEPTH_TEST);
+
+          createBuffers(Quad, [-1.0,-1.0,0.0, -1.0,1.0,0.0, 1.0,1.0,0.0, 1.0,-1.0,0.0],[0.0,0.0,0.0,1.0,1.0,1.0,1.0,0.0],[0,1,2,2,3,0])
+          shader = generateProgram( "basicVertex","renderFragment")
+          shader2 = generateProgram( "basicVertex","basicFragment")
+          FBO = CreateFrameBufferObject(512, 386)
+          initShaderData()
+          injectData()
+      }
+
+
+      function renderLoop()
+      {
+          window.requestAnimFrame(renderLoop);
+          drawScene();        
+      }
+      function main() 
+      {
+          // Récupération du canvas
+          canvas = document.getElementById("canvas");
+
+          // Initialisation du contexte WebGL
+          initGL(canvas);
+          initRender();
+          renderLoop();
+      }
+      </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body onload="main();">
+    <div class="wrapper">
+      <header>
+        <h1 class="header">At Anis&#39;s.</h1>
+        <p class="header">Home sweet home.</p>
+        <ul>
+          <li><a class="buttons home" href="index.html">Home</a></li>
+          <li><a class="buttons projects" href="projects.html">Projects</a></li>
+          <li><a class="buttons" href="cv.html">CV</a></li>
+          <li><a class="buttons fun" href="#">Fun</a></li>
+          <li><a class="buttons contact" href="contact.html">Contact</a></li>
+          <li><a class="buttons github" href="https://github.com/AnisB">GitHub Profile</a></li>
+        </ul>
+      </header>
+      <section>
+        <h1>
+<a id="-pt" class="anchor" href="#-pt" aria-hidden="true"><span class="octicon octicon-link"></span></a>Real time path tracer</h1>
+<canvas id="canvas" style="border: none;" width="512" height="386"></canvas>
+      </section>
+      <footer>
+        <p><small>© Anis Benyoub 2014 | Hosted on <a href="http://pages.github.com">GitHub Pages</a> using the Dinky theme</small></p>
+      </footer>
+    </div>
+    <!--[if !IE]><script>fixScale(document);</script><![endif]-->
+		          <script type="text/javascript">
+            var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+            document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+          </script>
+          <script type="text/javascript">
+            try {
+              var pageTracker = _gat._getTracker("anis, benyoub, anisb, auzaiffe");
+            pageTracker._trackPageview();
+            } catch(err) {}
+          </script>
+
+  </body>
+</html>
