@@ -10,6 +10,30 @@
     <script src="javascripts/scale.fix.js"></script>
   <script type="text/javascript" src="javascripts/libtp3.js"></script>
   <script type="text/javascript" src="javascripts/webgl-utils.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body >
+    <div class="wrapper">
+      <header>
+        <h1 class="header">At Anis&#39;s.</h1>
+        <p class="header">Home sweet home.</p>
+        <ul>
+          <li><a class="buttons home" href="index.html">Home</a></li>
+          <li><a class="buttons projects" href="projects.html">Projects</a></li>
+          <li><a class="buttons" href="cv.html">CV</a></li>
+          <li><a class="buttons fun" href="#">Fun</a></li>
+          <li><a class="buttons contact" href="contact.html">Contact</a></li>
+          <li><a class="buttons github" href="https://github.com/AnisB">GitHub Profile</a></li>
+          <li><a class="buttons linked" href="https://ca.linkedin.com/pub/anis-benyoub/44/b4b/320/">LinkedIn profile</a></li>
+        </ul>
+      </header>
+      <section>
+        <h1>
+<a id="-pt" class="anchor" href="#-pt" aria-hidden="true"><span class="octicon octicon-link"></span></a>Real time path tracer</h1>
+<p> Supported effects: Cosine PDF, Reflection, refraction, glossy and motion blur (doesn't work under Windows).
   <script id="renderFragment" type="glsl/frag">
   precision mediump float;
 
@@ -245,11 +269,10 @@
           {
               vec3 r =  reflect(currentInter.incident,currentInter.normal);
               float cosVal = dot(r, currentRay.direction);
-              color *= currentInter.colorVal*pow(cosVal,glossyFactor)*(glossyFactor);
+              color *= currentInter.colorVal*pow(cosVal,glossyFactor-1.0)*(glossyFactor);
           }
           else
           {
-              float cosVal = dot(currentRay.direction, currentInter.normal);
               color *= currentInter.colorVal;
           }
       }
@@ -266,7 +289,7 @@
       property[6]=2;
       property[7]=0;
 
-      speed[5] = 0.0;
+      speed[5] = 5.0;
       speed[6] = 0.0;
       speed[7] = 0.0;
 
@@ -492,34 +515,13 @@
           renderLoop();
       }
       </script>
-    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-    <!--[if lt IE 9]>
-    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
-    <![endif]-->
-  </head>
-  <body >
-    <div class="wrapper">
-      <header>
-        <h1 class="header">At Anis&#39;s.</h1>
-        <p class="header">Home sweet home.</p>
-        <ul>
-          <li><a class="buttons home" href="index.html">Home</a></li>
-          <li><a class="buttons projects" href="projects.html">Projects</a></li>
-          <li><a class="buttons" href="cv.html">CV</a></li>
-          <li><a class="buttons fun" href="#">Fun</a></li>
-          <li><a class="buttons contact" href="contact.html">Contact</a></li>
-          <li><a class="buttons github" href="https://github.com/AnisB">GitHub Profile</a></li>
-          <li><a class="buttons linked" href="https://ca.linkedin.com/pub/anis-benyoub/44/b4b/320/">LinkedIn profile</a></li>
-        </ul>
-      </header>
-      <section>
-        <h1>
-<a id="-pt" class="anchor" href="#-pt" aria-hidden="true"><span class="octicon octicon-link"></span></a>Real time path tracer</h1>
 <canvas id="canvas" style="border: none;" width="512" height="386"></canvas></br>
 <input id="clickMe" type="button" value="Push to launch PT" onclick="main();" />
 <h1>
+
 <a id="-mmlt" class="anchor" href="#-mmlt" aria-hidden="true"><span class="octicon octicon-link"></span></a>PSSMLT and MMLT</h1>
-<iframe src="slides.pdf" style="width:718px; height:700px;" frameborder="0"></iframe>
+<p> A presentation I did on primary sample space metroplis light transport and multiplexed metropolis transport. If you like rendering you will enjoy it!</p>
+<iframe id="pssmltmmlt" src="slides.pdf" style="width:718px; height:700px;" display="none" frameborder="0"></iframe>
 
 <h1>
 <a id="-jvinsa" class="anchor" href="#-jvinsa" aria-hidden="true"><span class="octicon octicon-link"></span></a>JeuxVideo@INSA</h1>
