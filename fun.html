@@ -52,7 +52,7 @@ If you have a few minutes: take a look (it is not that bad :p). However, if you 
   precision mediump float;
 
   varying vec2 texCoord;
-
+  uniform sampler2D previousFrame;
   struct TRay
   {
     vec3 origin;
@@ -60,7 +60,6 @@ If you have a few minutes: take a look (it is not that bad :p). However, if you 
     bool outRay;
   };
 
-  uniform sampler2D previousFrame;
   uniform int frameID;
 
   struct TSphere
@@ -327,7 +326,7 @@ If you have a few minutes: take a look (it is not that bad :p). However, if you 
   </script>
 
   <!-- Declaration du vertex shader -->
-  <script id="basicFragment" type="glsl/fragment">
+  <script id="correction" type="glsl/fragment">
       precision mediump float;
       //Attributs passés en attribute
       uniform sampler2D previousFrame;
@@ -336,6 +335,19 @@ If you have a few minutes: take a look (it is not that bad :p). However, if you 
       void main(void) 
       {
           gl_FragColor = vec4(clamp(pow(texture2D(previousFrame,texCoord).xyz,vec3(1.0/2.2)),0.0,1.0),1.0);
+      }
+  </script>
+
+    <!-- Declaration du vertex shader -->
+  <script id="affichage" type="glsl/fragment">
+      precision mediump float;
+      //Attributs passés en attribute
+      uniform sampler2D previousFrame;
+
+      varying vec2 texCoord;
+      void main(void) 
+      {
+          gl_FragColor = texture2D(previousFrame,texCoord);
       }
   </script>
 
@@ -362,7 +374,8 @@ If you have a few minutes: take a look (it is not that bad :p). However, if you 
 
       var delta = 0.0;
       var VERY_BIG = 100000;
-      var FBO;
+      var FBO1;
+      var FBO2;
       // Inputs
       var currentlyPressedKeys = {};
       var shader;
@@ -383,6 +396,11 @@ If you have a few minutes: take a look (it is not that bad :p). However, if you 
           bindProgram(shader2);
           shader2.vertexPositionAttribute = gl.getAttribLocation(shader2, "VertexPosition");
           shader2.vertexTexCoordAttribute = gl.getAttribLocation(shader2, "VertexTexCoord");
+          bindProgram(null);
+
+          bindProgram(shader3);
+          shader3.vertexPositionAttribute = gl.getAttribLocation(shader3, "VertexPosition");
+          shader3.vertexTexCoordAttribute = gl.getAttribLocation(shader3, "VertexTexCoord");
           bindProgram(null);
 
       }
@@ -449,6 +467,10 @@ If you have a few minutes: take a look (it is not that bad :p). However, if you 
           shader2.previousFrame = gl.getUniformLocation(shader2, "previousFrame");
           bindProgram(null);
 
+          bindProgram(shader3);
+          shader3.previousFrame = gl.getUniformLocation(shader3, "previousFrame");
+          bindProgram(null);
+
       }
 
       function drawQuad(parShader)
@@ -478,25 +500,32 @@ If you have a few minutes: take a look (it is not that bad :p). However, if you 
           // On définie le viewport
           gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
           // On injecte les données communes
-          bindFBO(FBO);
+          bindFBO(FBO1);
           bindProgram(shader);
           gl.uniform1i(shader.previousFrame, 0); 
           gl.activeTexture(gl.TEXTURE0)
-          gl.bindTexture(gl.TEXTURE_2D, FBO.colorTex);
+          gl.bindTexture(gl.TEXTURE_2D, FBO2.colorTex);
           gl.uniform1i(shader.frameID, frameID++);
           gl.uniform1f(shader.timeVal, (current-firstTime)/1000.0); 
           drawQuad(shader)
           unbindProgram();
           unbindFBO();
-
+          
+          bindFBO(FBO2);
           bindProgram(shader2)
           gl.uniform1i(shader2.previousFrame, 0); 
-
           gl.activeTexture(gl.TEXTURE0)
-          gl.bindTexture(gl.TEXTURE_2D, FBO.colorTex);
+          gl.bindTexture(gl.TEXTURE_2D, FBO1.colorTex);
           drawQuad(shader2)
           unbindProgram();
+          unbindFBO();
 
+          bindProgram(shader3)
+          gl.uniform1i(shader3.previousFrame, 0); 
+          gl.activeTexture(gl.TEXTURE0)
+          gl.bindTexture(gl.TEXTURE_2D, FBO2.colorTex);
+          drawQuad(shader3)
+          unbindProgram();
       }
 
       function initRender()
@@ -506,8 +535,10 @@ If you have a few minutes: take a look (it is not that bad :p). However, if you 
 
           createBuffers(Quad, [-1.0,-1.0,0.0, -1.0,1.0,0.0, 1.0,1.0,0.0, 1.0,-1.0,0.0],[0.0,0.0,0.0,1.0,1.0,1.0,1.0,0.0],[0,1,2,2,3,0])
           shader = generateProgram( "basicVertex","renderFragment")
-          shader2 = generateProgram( "basicVertex","basicFragment")
-          FBO = CreateFrameBufferObject(512, 386)
+          shader2 = generateProgram( "basicVertex","affichage")
+          shader3 = generateProgram( "basicVertex","correction")
+          FBO1 = CreateFrameBufferObject(512, 386)
+          FBO2 = CreateFrameBufferObject(512, 386)
           initShaderData()
           injectData()
       }
